@@ -1,0 +1,6 @@
+BEGIN;
+
+DROP TABLE IF EXISTS billing_windows;
+DROP TABLE IF EXISTS customers;
+
+COMMIT;

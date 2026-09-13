@@ -1,0 +1,11 @@
+.git/
+.gitignore
+docs/
+backend/bin/
+backend/*.exe
+frontend/node_modules/
+frontend/dist/
+frontend/tsconfig.tsbuildinfo
+*.log
+.env
+.env.*

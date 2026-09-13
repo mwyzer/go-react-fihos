@@ -1,0 +1,86 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: fihos
+      POSTGRES_PASSWORD: fihos
+      POSTGRES_DB: fihos
+    ports:
+      - "55432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U fihos -d fihos"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6380:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  migrate:
+    build:
+      context: ..
+      dockerfile: docker/backend.Dockerfile
+    image: fihos-backend
+    command: ["/app/bin/migrate"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment: &backend_env
+      DATABASE_URL: postgres://fihos:fihos@postgres:5432/fihos?sslmode=disable
+      REDIS_ADDR: redis:6379
+      JWT_SECRET: ${JWT_SECRET:-dev-secret-change-me}
+      MIGRATIONS_PATH: /app/migrations
+
+  api:
+    image: fihos-backend
+    command: ["/app/bin/api"]
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      <<: *backend_env
+      HTTP_PORT: "8080"
+
+  worker:
+    image: fihos-backend
+    command: ["/app/bin/worker"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      <<: *backend_env
+
+  web:
+    build:
+      context: ..
+      dockerfile: docker/frontend.Dockerfile
+    image: fihos-web
+    ports:
+      - "8081:80"
+    depends_on:
+      api:
+        condition: service_started
+
+volumes:
+  pgdata:

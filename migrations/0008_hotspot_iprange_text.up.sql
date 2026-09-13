@@ -1,0 +1,5 @@
+BEGIN;
+
+ALTER TABLE hotspots ALTER COLUMN ip_range TYPE VARCHAR(64) USING ip_range::text;
+
+COMMIT;

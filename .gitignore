@@ -1,0 +1,23 @@
+# Go
+backend/bin/
+backend/*.exe
+*.test
+
+# Node
+node_modules/
+frontend/dist/
+
+# Env
+.env
+.env.*
+!.env.example
+
+# Editor / OS
+.vscode/
+.idea/
+*.iml
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
