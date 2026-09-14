@@ -41,6 +41,15 @@ services:
       REDIS_ADDR: redis:6379
       JWT_SECRET: ${JWT_SECRET:-dev-secret-change-me}
       MIGRATIONS_PATH: /app/migrations
+      MIKROTIK_MODE: ${MIKROTIK_MODE:-simulate}
+      MIKROTIK_USER: ${MIKROTIK_USER:-}
+      MIKROTIK_PASS: ${MIKROTIK_PASS:-}
+      MIKROTIK_TIMEOUT: ${MIKROTIK_TIMEOUT:-5s}
+      SIM_SHARED: ${SIM_SHARED:-1}
+      PAYMENT_PROVIDER: ${PAYMENT_PROVIDER:-mock}
+      PAYMENT_SANDBOX_URL: ${PAYMENT_SANDBOX_URL:-}
+      PAYMENT_WEBHOOK_SECRET: ${PAYMENT_WEBHOOK_SECRET:-dev-webhook-secret}
+      PAYMENT_FEE_RATE: ${PAYMENT_FEE_RATE:-0.03}
 
   api:
     image: fihos-backend

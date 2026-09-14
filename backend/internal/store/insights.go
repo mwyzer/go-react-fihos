@@ -81,7 +81,7 @@ func (s *Store) ListRateWindows(ctx context.Context, tenantID, hotspotID int64, 
 		return nil, err
 	}
 	defer rows.Close()
-	var out []RateWindow
+	var out []RateWindow = make([]RateWindow, 0)
 	for rows.Next() {
 		created := &RateWindow{}
 		err := rows.Scan(&created.ID, &created.TenantID, &created.HotspotID, &created.BoostMultiplier, &created.EffectiveFrom,
@@ -370,7 +370,7 @@ func (s *Store) HotspotTrafficSeries(ctx context.Context, tenantID, hotspotID in
 		return nil, err
 	}
 	defer rows.Close()
-	var out []DailyRow
+	var out []DailyRow = make([]DailyRow, 0)
 	for rows.Next() {
 		r := DailyRow{}
 		if err := rows.Scan(&r.Day, &r.Sessions, &r.BytesRX, &r.BytesTX); err != nil {
@@ -401,7 +401,7 @@ func (s *Store) TopHotspots(ctx context.Context, tenantID int64, since time.Time
 		return nil, err
 	}
 	defer rows.Close()
-	var out []TopHotspot
+	var out []TopHotspot = make([]TopHotspot, 0)
 	for rows.Next() {
 		t := TopHotspot{}
 		if err := rows.Scan(&t.HotspotID, &t.Name, &t.BytesRX, &t.BytesTX, &t.Sessions); err != nil {

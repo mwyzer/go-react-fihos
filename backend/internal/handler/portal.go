@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"log"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -25,7 +26,7 @@ func (h *H) PortalGetHealth(c *gin.Context) {
 	}
 	settings, _ := h.St.Settings(c.Request.Context(), tenant.ID)
 	response.Ok(c, 200, gin.H{
-		"tenant":  gin.H{"name": tenant.Name, "slug": tenant.Slug, "branding": tenant.Branding},
+		"tenant":   gin.H{"name": tenant.Name, "slug": tenant.Slug, "branding": tenant.Branding},
 		"settings": settings,
 	})
 }
@@ -104,12 +105,16 @@ func (h *H) PortalPostRedeem(c *gin.Context) {
 		return
 	}
 
-	// Paid vouchers are charged through the mock gateway.
+	// Paid vouchers are charged through the configured gateway.
 	batch, err := h.St.BatchByID(c.Request.Context(), tenant.ID, voucher.BatchID)
 	if err == nil && batch.Price != nil && *batch.Price > 0 {
-		if _, err := h.Billing.Charge(c.Request.Context(), tenant.ID, voucher.ID, *batch.Price); err != nil {
+		charge, err := h.Billing.Charge(c.Request.Context(), tenant.ID, voucher.ID, *batch.Price)
+		if err != nil {
 			response.Internal(c, err)
 			return
+		}
+		if charge.Async {
+			log.Printf("portal: payment %s awaiting settlement via %s", charge.Payment.ExternalRef, charge.PaymentURL)
 		}
 	}
 
@@ -132,11 +137,11 @@ func (h *H) PortalPostRedeem(c *gin.Context) {
 	h.Mt.SeedSessions(h.mtRouter(router), []mikrotik.SimSession{{Username: username, MAC: req.MAC}})
 
 	response.Ok(c, 201, gin.H{
-		"session_id": sess.ID,
-		"username":   username,
-		"password":   password,
+		"session_id":   sess.ID,
+		"username":     username,
+		"password":     password,
 		"duration_min": batch.Duration,
-		"wifi":       gin.H{"ssid": hotspot.Name, "ip_range": hotspot.IPRange},
+		"wifi":         gin.H{"ssid": hotspot.Name, "ip_range": hotspot.IPRange},
 	})
 }
 
@@ -181,11 +186,11 @@ func (h *H) PortalPostStatus(c *gin.Context) {
 		return
 	}
 	response.Ok(c, 200, gin.H{
-		"connected": true,
-		"session_id": sess.ID,
-		"bytes_rx":   sess.BytesRX,
-		"bytes_tx":   sess.BytesTX,
-		"started_at": sess.StartedAt,
+		"connected":     true,
+		"session_id":    sess.ID,
+		"bytes_rx":      sess.BytesRX,
+		"bytes_tx":      sess.BytesTX,
+		"started_at":    sess.StartedAt,
 		"remaining_min": int(profileRemainingMin(h, c, tenant.ID, sess)),
 	})
 }

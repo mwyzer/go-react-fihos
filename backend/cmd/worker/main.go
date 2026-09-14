@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"log"
+	"net/http"
 	"os/signal"
 	"sync"
 	"syscall"
@@ -38,25 +39,32 @@ func main() {
 	defer rdb.Close()
 
 	st := store.New(db)
-	sim := mikrotik.NewSimulator()
-	mt := mikrotik.NewClient(sim)
+	var sim mikrotik.SimState = mikrotik.NewSimulator()
+	if cfg.SimShared {
+		sim = mikrotik.NewRedisSimulator(rdb)
+	}
+	registerAllRouters(ctx, st, sim)
+	mt := mikrotik.New(cfg.MikrotikMode, sim, mikrotik.Credentials{
+		Username: cfg.MikrotikUser,
+		Password: cfg.MikrotikPass,
+	}, &http.Client{Timeout: cfg.MikrotikTimeout})
 	anom := service.NewAnomalyEngine(st)
 
-	log.Printf("worker started (sync=%s, probe=%s, analytics=%s)", cfg.RouterSyncFreq, cfg.RouterProbeFreq, cfg.AnalyticsFreq)
+	log.Printf("worker started (sync=%s, probe=%s, analytics=%s, billing=%s)", cfg.RouterSyncFreq, cfg.RouterProbeFreq, cfg.AnalyticsFreq, cfg.BillingFreq)
 	syncCtx, syncCancel := context.WithCancel(ctx)
 	defer syncCancel()
 
 	// Initial probe so scheduler doesn't fail on first tick.
-	probeRouters(ctx, st, sim, mt)
+	probeRouters(ctx, st, mt)
 
 	var wg sync.WaitGroup
-	wg.Add(3)
+	wg.Add(4)
 
 	// Probe loop: register + probe routers (immediate first pass).
 	go func() {
 		defer wg.Done()
 		for {
-			probeRouters(syncCtx, st, sim, mt)
+			probeRouters(syncCtx, st, mt)
 			select {
 			case <-syncCtx.Done():
 				return
@@ -74,6 +82,19 @@ func main() {
 			case <-syncCtx.Done():
 				return
 			case <-time.After(cfg.RouterSyncFreq):
+			}
+		}
+	}()
+
+	// Billing loop: auto-generate monthly windows for token customers.
+	go func() {
+		defer wg.Done()
+		for {
+			billingTick(syncCtx, st)
+			select {
+			case <-syncCtx.Done():
+				return
+			case <-time.After(cfg.BillingFreq):
 			}
 		}
 	}()
@@ -102,7 +123,7 @@ func main() {
 	log.Println("worker stopped")
 }
 
-func probeRouters(ctx context.Context, st *store.Store, sim *mikrotik.Simulator, mt *mikrotik.Client) {
+func probeRouters(ctx context.Context, st *store.Store, mt *mikrotik.Client) {
 	if ctx.Err() != nil {
 		return
 	}
@@ -112,8 +133,8 @@ func probeRouters(ctx context.Context, st *store.Store, sim *mikrotik.Simulator,
 		return
 	}
 	for _, r := range routers {
-		sim.RegisterRouter(r.ID, r.Name)
-		ok, ts, err := mt.ProbeWithTime(mikrotik.Router{ID: r.ID})
+		router := mikrotik.Router{ID: r.ID, Name: r.Name, IPAddress: r.IPAddress, APIPort: r.APIPort, Username: r.Username, Password: r.Password}
+		ok, ts, err := mt.ProbeWithTime(router)
 		if err != nil || !ok {
 			_ = st.SetRouterOffline(ctx, r.ID)
 			continue
@@ -123,9 +144,42 @@ func probeRouters(ctx context.Context, st *store.Store, sim *mikrotik.Simulator,
 	}
 }
 
+// registerAllRouters seeds the shared device state from the DB so seeded
+// routers respond to probes without a manual simulate toggle. It is only run
+// once at startup; probeRouters intentionally does not re-register, otherwise a
+// simulate-off toggle in the API would be undone on the next probe tick.
+func registerAllRouters(ctx context.Context, st *store.Store, sim mikrotik.SimState) {
+	routers, err := st.RoutersAll(ctx)
+	if err != nil {
+		log.Printf("seed routers: %v", err)
+		return
+	}
+	for _, r := range routers {
+		sim.RegisterRouter(r.ID, r.Name)
+	}
+}
+
 func schedulerTick(ctx context.Context, st *store.Store, mt *mikrotik.Client, interval time.Duration) {
 	if ctx.Err() != nil {
 		return
+	}
+
+	// Resolve routers once so REST/device calls carry full connection info.
+	routersAll, err := st.RoutersAll(ctx)
+	if err != nil {
+		log.Printf("routers: %v", err)
+		return
+	}
+	routers := make(map[int64]*mikrotik.Router, len(routersAll))
+	for i := range routersAll {
+		r := routersAll[i]
+		routers[r.ID] = &mikrotik.Router{ID: r.ID, Name: r.Name, IPAddress: r.IPAddress, APIPort: r.APIPort, Username: r.Username, Password: r.Password}
+	}
+	router := func(id int64) mikrotik.Router {
+		if r, ok := routers[id]; ok {
+			return *r
+		}
+		return mikrotik.Router{ID: id}
 	}
 
 	// 1. Apply pending hotspot config jobs.
@@ -145,7 +199,7 @@ func schedulerTick(ctx context.Context, st *store.Store, mt *mikrotik.Client, in
 			_ = st.FailJob(ctx, j.ID, err.Error())
 			continue
 		}
-		if err := mt.ApplyConfig(mikrotik.Router{ID: hs.RouterID},
+		if err := mt.ApplyConfig(router(hs.RouterID),
 			mikrotik.HotspotConfig{Name: hs.Name, RxRate: profile.RxRate, TxRate: profile.TxRate, UptimeLimit: profile.SessionUptimeLimit}); err != nil {
 			_ = st.FailJob(ctx, j.ID, err.Error())
 			continue
@@ -166,7 +220,7 @@ func schedulerTick(ctx context.Context, st *store.Store, mt *mikrotik.Client, in
 		return
 	}
 	for _, w := range windows {
-		if err := mt.ApplyRateMultiplier(mikrotik.Router{ID: w.RouterID}, w.HotspotName, w.Multiplier); err != nil {
+		if err := mt.ApplyRateMultiplier(router(w.RouterID), w.HotspotName, w.Multiplier); err != nil {
 			log.Printf("rate-window start h=%d: %v", w.HotspotID, err)
 			continue
 		}
@@ -181,7 +235,7 @@ func schedulerTick(ctx context.Context, st *store.Store, mt *mikrotik.Client, in
 		return
 	}
 	for _, e := range ends {
-		if err := mt.ApplyRateMultiplier(mikrotik.Router{ID: e.RouterID}, e.HotspotName, 1); err != nil {
+		if err := mt.ApplyRateMultiplier(router(e.RouterID), e.HotspotName, 1); err != nil {
 			log.Printf("rate-window end h=%d: %v", e.HotspotID, err)
 			continue
 		}
@@ -191,7 +245,7 @@ func schedulerTick(ctx context.Context, st *store.Store, mt *mikrotik.Client, in
 
 	// 4. Reconcile live sessions (mirror DB -> sim, poll traffic, snapshot).
 	for _, r := range routersWithActiveSessions(ctx, st) {
-		reconcileRouter(ctx, st, mt, r, interval)
+		reconcileRouter(ctx, st, mt, router(r.routerID), r, interval)
 	}
 }
 
@@ -217,7 +271,7 @@ func routersWithActiveSessions(ctx context.Context, st *store.Store) []routerSes
 	return out
 }
 
-func reconcileRouter(ctx context.Context, st *store.Store, mt *mikrotik.Client, rs routerSessions, interval time.Duration) {
+func reconcileRouter(ctx context.Context, st *store.Store, mt *mikrotik.Client, router mikrotik.Router, rs routerSessions, interval time.Duration) {
 	// Mirror current DB sessions into the simulated router.
 	seed := make([]mikrotik.SimSession, 0, len(rs.sessions))
 	keep := map[string]bool{}
@@ -232,7 +286,6 @@ func reconcileRouter(ctx context.Context, st *store.Store, mt *mikrotik.Client, 
 		})
 		keep[s.Username] = true
 	}
-	router := mikrotik.Router{ID: rs.routerID}
 	mt.SeedSessions(router, seed)
 	mt.DropSessionsExcept(router, keep)
 
@@ -258,6 +311,27 @@ func reconcileRouter(ctx context.Context, st *store.Store, mt *mikrotik.Client, 
 		// Session disappeared from the simulated router: close it.
 		if _, err := st.CloseSession(ctx, s.ID, now, s.BytesRX, s.BytesTX); err != nil {
 			log.Printf("close session %d: %v", s.ID, err)
+		}
+	}
+}
+
+func billingTick(ctx context.Context, st *store.Store) {
+	if ctx.Err() != nil {
+		return
+	}
+	tenants, err := st.ActiveTenantIDs(ctx)
+	if err != nil {
+		log.Printf("billing tenants: %v", err)
+		return
+	}
+	for _, tid := range tenants {
+		n, err := st.GenerateMonthlyWindows(ctx, tid, time.Now())
+		if err != nil {
+			log.Printf("billing generate tenant %d: %v", tid, err)
+			continue
+		}
+		if n > 0 {
+			log.Printf("billing: tenant %d generated %d windows", tid, n)
 		}
 	}
 }

@@ -50,6 +50,15 @@ func (s *Store) PaymentByRef(ctx context.Context, tenantID int64, ref string) (*
 	return out, noRows(err)
 }
 
+// PaymentByRefGlobal looks a payment up by external ref regardless of tenant;
+// used by webhook settlement where the caller is the gateway, not a tenant.
+func (s *Store) PaymentByRefGlobal(ctx context.Context, ref string) (*Payment, error) {
+	row := s.QueryRow(ctx, "SELECT "+paymentCols+" FROM payments WHERE external_ref=$1", ref)
+	out := &Payment{}
+	err := row.Scan(&out.ID, &out.TenantID, &out.VoucherID, &out.ExternalRef, &out.Amount, &out.Fee, &out.NetAmount, &out.Status, &out.PaymentMethod, &out.CreatedAt, &out.UpdatedAt)
+	return out, noRows(err)
+}
+
 func (s *Store) UpdatePaymentStatus(ctx context.Context, id int64, status string) error {
 	res, err := s.Exec(ctx, "UPDATE payments SET status=$1, updated_at=now() WHERE id=$2 AND status IN ('pending','failed')", status, id)
 	if err != nil {

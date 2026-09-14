@@ -16,17 +16,18 @@ import (
 )
 
 type H struct {
-	St      *store.Store
-	Rdb     *redis.Client
-	Auth    *auth.Service
-	Billing *service.Billing
-	Anomaly *service.AnomalyEngine
-	Sim     *mikrotik.Simulator
-	Mt      *mikrotik.Client
+	St            *store.Store
+	Rdb           *redis.Client
+	Auth          *auth.Service
+	Billing       *service.Billing
+	Anomaly       *service.AnomalyEngine
+	Sim           mikrotik.SimState
+	Mt            *mikrotik.Client
+	PaymentSecret string
 }
 
-func New(st *store.Store, rdb *redis.Client, a *auth.Service, billing *service.Billing, anomaly *service.AnomalyEngine, sim *mikrotik.Simulator, mt *mikrotik.Client) *H {
-	return &H{St: st, Rdb: rdb, Auth: a, Billing: billing, Anomaly: anomaly, Sim: sim, Mt: mt}
+func New(st *store.Store, rdb *redis.Client, a *auth.Service, billing *service.Billing, anomaly *service.AnomalyEngine, sim mikrotik.SimState, mt *mikrotik.Client, paymentSecret string) *H {
+	return &H{St: st, Rdb: rdb, Auth: a, Billing: billing, Anomaly: anomaly, Sim: sim, Mt: mt, PaymentSecret: paymentSecret}
 }
 
 // tenant resolves the caller's tenant id from the JWT (admin global users

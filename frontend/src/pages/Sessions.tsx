@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { api } from '../lib/api'
+import { api, getActiveTenant, getUser } from '../lib/api'
 import { fmtBytes, fmtDur, relTime } from '../lib/fmt'
 
 type Session = {
@@ -32,7 +32,7 @@ export function Sessions() {
       if (state) qs.set('state', state)
       if (q) qs.set('q', q)
       const res = await api<Page<Session>>('GET', `/sessions?${qs.toString()}`)
-      setItems(res.items)
+      setItems(res.items ?? [])
       setTotal(res.total)
       setError('')
     } catch (err) {
@@ -41,6 +41,8 @@ export function Sessions() {
   }
 
   useEffect(() => {
+    const u = getUser()
+    if (u != null && u.tenant_id == null && getActiveTenant() == null) return
     void load()
   }, [page, state])
 

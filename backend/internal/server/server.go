@@ -1,6 +1,7 @@
 package server
 
 import (
+	"net/http"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -17,12 +18,18 @@ import (
 )
 
 type Deps struct {
-	DB       *pgxpool.Pool
-	Redis    *redis.Client
-	Verifier middleware.AuthVerifier
-	AuthSvc  *auth.Service
-	Store    *store.Store
-	Sim      *mikrotik.Simulator
+	DB                   *pgxpool.Pool
+	Redis                *redis.Client
+	Verifier             middleware.AuthVerifier
+	AuthSvc              *auth.Service
+	Store                *store.Store
+	Sim                  mikrotik.SimState
+	MikrotikMode         string
+	MikrotikCreds        mikrotik.Credentials
+	MikrotikTimeout      time.Duration
+	PaymentProvider      string
+	PaymentSandboxURL    string
+	PaymentWebhookSecret string
 }
 
 func New(engine *gin.Engine, deps Deps) *gin.Engine {
@@ -35,9 +42,11 @@ func New(engine *gin.Engine, deps Deps) *gin.Engine {
 	engine.GET("/healthz", healthHandler.Live)
 	engine.GET("/readyz", healthHandler.Ready)
 
-	mt := mikrotik.NewClient(deps.Sim)
+	mt := mikrotik.New(deps.MikrotikMode, deps.Sim, deps.MikrotikCreds, &http.Client{Timeout: deps.MikrotikTimeout})
+	provider := service.NewProvider(deps.PaymentProvider, service.ProviderConfig{SandboxBaseURL: deps.PaymentSandboxURL})
+	billing := service.NewBilling(deps.Store, provider)
 	h := handler.New(deps.Store, deps.Redis, deps.AuthSvc,
-		service.NewBilling(deps.Store), service.NewAnomalyEngine(deps.Store), deps.Sim, mt)
+		billing, service.NewAnomalyEngine(deps.Store), deps.Sim, mt, deps.PaymentWebhookSecret)
 
 	rate := func(rc *gin.RouterGroup) {
 		rc.POST("/login", h.PostLogin)
@@ -55,6 +64,13 @@ func New(engine *gin.Engine, deps Deps) *gin.Engine {
 		portal.GET("/:slug/health", h.PortalGetHealth)
 		portal.POST("/:slug/redeem", h.PortalPostRedeem)
 		portal.POST("/:slug/status", h.PortalPostStatus)
+	}
+
+	// Payment gateway callbacks (public: the gateway settles, not our tenants).
+	payments := engine.Group("/api/v1/payments", middleware.RateLimitIP(deps.Redis, "payments", 30, time.Minute))
+	{
+		payments.POST("/:ref/complete", h.PostPaymentComplete)
+		payments.GET("/:ref", h.GetPaymentStatus)
 	}
 
 	api := engine.Group("/api/v1")
@@ -77,45 +93,50 @@ func New(engine *gin.Engine, deps Deps) *gin.Engine {
 			admin.GET("/audit", h.GetAudit)
 		}
 
-		// Tenant-scoped team operations (owner/staff).
+		// Tenant-scoped team operations (owner/staff reads, owner/admin writes).
 		team := api.Group("")
 		{
 			team.GET("/users", h.ListUsers)
-			team.POST("/users", h.PostUser)
-			team.PATCH("/users/:id", h.PatchUser)
+			teamWrite := team.Group("", middleware.Roles("owner", "admin"))
+			teamWrite.POST("/users", h.PostUser)
+			teamWrite.PATCH("/users/:id", h.PatchUser)
 			team.GET("/settings", h.GetSettings)
-			team.PUT("/settings", h.PutSettings)
+			teamWrite.PUT("/settings", h.PutSettings)
 			team.GET("/audit", h.GetAudit)
 		}
 
-		// Phase 2: profiles, routers, hotspots.
+		// Phase 2: reads open to every tenant role.
 		infra := api.Group("", middleware.RequireTenant)
 		{
 			infra.GET("/profiles", h.ListProfiles)
-			infra.POST("/profiles", h.PostProfile)
-			infra.PATCH("/profiles/:id", h.PatchProfile)
-
 			infra.GET("/routers", h.ListRouters)
-			infra.POST("/routers", h.PostRouter)
 			infra.GET("/routers/:id", h.GetRouter)
-			infra.PATCH("/routers/:id", h.PatchRouter)
 			infra.PATCH("/routers/:id/config", h.PostRouterProbe)
-			infra.DELETE("/routers/:id", h.DeleteRouter)
 			infra.POST("/routers/:id/probe", h.PostRouterProbe)
 			infra.POST("/routers/:id/simulate", h.PostRouterSimulate)
 
 			infra.GET("/hotspots", h.ListHotspots)
-			infra.POST("/hotspots", h.PostHotspot)
 			infra.GET("/hotspots/:id", h.GetHotspot)
-			infra.PATCH("/hotspots/:id", h.PatchHotspot)
-			infra.PATCH("/hotspots/:id/status", h.PatchHotspotStatus)
+		}
+
+		// Writes that change router/hotspot/profile configuration (owner/admin only).
+		infraWrite := api.Group("", middleware.RequireTenant, middleware.Roles("owner", "admin"))
+		{
+			infraWrite.POST("/profiles", h.PostProfile)
+			infraWrite.PATCH("/profiles/:id", h.PatchProfile)
+			infraWrite.POST("/routers", h.PostRouter)
+			infraWrite.PATCH("/routers/:id", h.PatchRouter)
+			infraWrite.DELETE("/routers/:id", h.DeleteRouter)
+			infraWrite.POST("/hotspots", h.PostHotspot)
+			infraWrite.PATCH("/hotspots/:id", h.PatchHotspot)
+			infraWrite.PATCH("/hotspots/:id/status", h.PatchHotspotStatus)
 		}
 
 		// Phase 3: vouchers.
 		vouchers := api.Group("/batches", middleware.RequireTenant)
 		{
 			vouchers.GET("", h.ListBatches)
-			vouchers.POST("", h.PostBatch)
+			vouchers.POST("", middleware.Roles("owner", "admin"), h.PostBatch)
 			vouchers.GET("/:id", h.GetBatch)
 			vouchers.GET("/:id/vouchers", h.ListBatchVouchers)
 			vouchers.POST("/:id/vouchers/:vid/revoke", h.PostVoucherRevoke)
@@ -143,11 +164,31 @@ func New(engine *gin.Engine, deps Deps) *gin.Engine {
 		phase6 := api.Group("", middleware.RequireTenant)
 		{
 			phase6.GET("/rate-windows", h.ListRateWindows)
-			phase6.POST("/rate-windows", h.PostRateWindow)
-			phase6.DELETE("/rate-windows/:id", h.DeleteRateWindow)
+			phase6.POST("/rate-windows", middleware.Roles("owner", "admin"), h.PostRateWindow)
+			phase6.DELETE("/rate-windows/:id", middleware.Roles("owner", "admin"), h.DeleteRateWindow)
 			phase6.GET("/alerts", h.ListAlerts)
-			phase6.PATCH("/alerts/:id/status", h.PatchAlertStatus)
+			phase6.PATCH("/alerts/:id/status", middleware.Roles("owner", "admin"), h.PatchAlertStatus)
 			phase6.GET("/config-jobs", h.ListConfigJobs)
+		}
+
+		// Phase 7: customers & billing. Reads are open to any tenant role;
+		// writes (customer mgmt, generate/mark-paid) are owner/admin only.
+		customers := api.Group("/customers", middleware.RequireTenant)
+		{
+			customers.GET("", h.ListCustomers)
+			customers.GET("/overview", h.CustomerOverview)
+			customersWrite := customers.Group("", middleware.Roles("owner", "admin"))
+			customersWrite.POST("", h.PostCustomer)
+			customersWrite.PATCH("/:id/status", h.PatchCustomerStatus)
+		}
+
+		billing := api.Group("/billing", middleware.RequireTenant)
+		{
+			billing.GET("", h.ListBillingWindows)
+			billing.GET("/overview", h.GetBillingOverview)
+			billingWrite := billing.Group("", middleware.Roles("owner", "admin"))
+			billingWrite.POST("/generate", h.PostBillingGenerate)
+			billingWrite.POST("/:id/pay", h.PostBillingPay)
 		}
 
 		api.GET("/ping", func(c *gin.Context) {

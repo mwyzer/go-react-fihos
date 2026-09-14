@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { api } from '../lib/api'
+import { api, getActiveTenant, getUser } from '../lib/api'
 import { fmtDur, fmtTime } from '../lib/fmt'
 
 type Batch = {
@@ -39,7 +39,7 @@ export function Vouchers() {
   async function load() {
     try {
       const res = await api<Page<Batch>>('GET', `/batches?page=${page}&size=10`)
-      setBatches(res.items)
+      setBatches(res.items ?? [])
       setTotal(res.total)
       setError('')
     } catch (err) {
@@ -48,6 +48,8 @@ export function Vouchers() {
   }
 
   useEffect(() => {
+    const u = getUser()
+    if (u != null && u.tenant_id == null && getActiveTenant() == null) return
     void load()
   }, [page])
 
@@ -210,10 +212,12 @@ function BatchDetail({ batchId, onRevoke }: { batchId: number; onRevoke: (vid: n
   const [q, setQ] = useState('')
 
   useEffect(() => {
+    const u = getUser()
+    if (u != null && u.tenant_id == null && getActiveTenant() == null) return
     void (async () => {
       try {
         const res = await api<Page<Voucher>>('GET', `/batches/${batchId}/vouchers?size=200${q ? `&q=${encodeURIComponent(q)}` : ''}`)
-        setVouchers(res.items)
+        setVouchers(res.items ?? [])
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to list vouchers')
       }

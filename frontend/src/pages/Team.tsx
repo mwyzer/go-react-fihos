@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { api, ApiError, getUser } from '../lib/api'
+import { api, ApiError, getActiveTenant, getUser } from '../lib/api'
 import { relTime } from '../lib/fmt'
 
 type User = {
@@ -29,7 +29,7 @@ export function Team() {
         api<Page<User>>('GET', '/users?size=50'),
         api<Settings>('GET', '/settings'),
       ])
-      setUsers(us.items)
+      setUsers(us.items ?? [])
       setSettings(s)
       setError('')
     } catch (err) {
@@ -38,6 +38,8 @@ export function Team() {
   }
 
   useEffect(() => {
+    const u = getUser()
+    if (u != null && u.tenant_id == null && getActiveTenant() == null) return
     void load()
   }, [])
 

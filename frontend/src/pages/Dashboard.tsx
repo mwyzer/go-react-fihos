@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { api } from '../lib/api'
+import { api, getActiveTenant, getUser } from '../lib/api'
 import { fmtBytes, fmtDate } from '../lib/fmt'
 
 type DashboardData = {
@@ -32,15 +32,17 @@ export function Dashboard() {
   const [error, setError] = useState('')
 
   useEffect(() => {
+    const u = getUser()
+    if (u != null && u.tenant_id == null && getActiveTenant() == null) return
     void load()
   }, [])
 
   async function load() {
     try {
-      const res = await api<{ dashboard: DashboardData; series: DailyRow[]; top: TopHotspot[] }>('GET', '/dashboard')
+      const res = await api<{ dashboard: DashboardData; series: DailyRow[] | null; top: TopHotspot[] | null }>('GET', '/dashboard')
       setDash(res.dashboard)
-      setSeries(res.series)
-      setTop(res.top)
+      setSeries(res.series ?? [])
+      setTop(res.top ?? [])
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load dashboard')
     }

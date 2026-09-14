@@ -140,7 +140,7 @@ func (h *H) ListConfigJobs(c *gin.Context) {
 		response.Internal(c, err)
 		return
 	}
-	filtered := items[:0]
+	filtered := make([]store.ConfigJob, 0, len(items))
 	for _, j := range items {
 		if j.TenantID == tid {
 			filtered = append(filtered, j)

@@ -2,7 +2,10 @@ package store
 
 import (
 	"context"
+	"errors"
 	"time"
+
+	"github.com/jackc/pgx/v5"
 )
 
 type BillingWindow struct {
@@ -37,7 +40,7 @@ func (s *Store) MonthlyFee(ctx context.Context, tenantID int64) (float64, error)
 		SELECT COALESCE((payment_config->>'monthly_fee')::numeric, 0)
 		FROM settings WHERE tenant_id=$1`, tenantID).Scan(&fee)
 	if err != nil {
-		if err.Error() == "no rows in result set" {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return defaultMonthlyFee, nil
 		}
 		return defaultMonthlyFee, nil

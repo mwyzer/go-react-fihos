@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { api } from '../lib/api'
+import { api, getActiveTenant, getUser } from '../lib/api'
 import { fmtTime } from '../lib/fmt'
 
 type RateWindow = {
@@ -24,8 +24,8 @@ export function RateWindows() {
   async function load() {
     try {
       const [w, hs] = await Promise.all([api<RateWindow[]>('GET', '/rate-windows'), api<Hotspot[]>('GET', '/hotspots')])
-      setItems(w)
-      setHotspots(hs)
+      setItems(w ?? [])
+      setHotspots(hs ?? [])
       setError('')
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load')
@@ -33,6 +33,8 @@ export function RateWindows() {
   }
 
   useEffect(() => {
+    const u = getUser()
+    if (u != null && u.tenant_id == null && getActiveTenant() == null) return
     void load()
   }, [])
 

@@ -1,6 +1,9 @@
 package mikrotik
 
-import "time"
+import (
+	"net/http"
+	"time"
+)
 
 // Router identifies a device the client talks to.
 type Router struct {
@@ -20,59 +23,72 @@ type HotspotConfig struct {
 	UptimeLimit int    `json:"session_uptime_limit"`
 }
 
-// Client talks to simulated (or later real) RouterOS devices.
-// The simulator is injected so api and worker share one in-memory registry.
+// Transport abstracts a RouterOS data path. The simulator backend keeps the
+// platform fully exercisable without hardware; the REST backend talks to real
+// RouterOS 6.47+/7.x devices over its JSON-RPC REST API ((/rest/...)).
+type Transport interface {
+	Register(router Router)
+	Unregister(routerID int64)
+	Probe(router Router) (bool, time.Time, error)
+	ApplyConfig(router Router, cfg HotspotConfig) error
+	ApplyRateMultiplier(router Router, hotspotName string, multiplier float64) error
+	SeedSessions(router Router, sessions []SimSession)
+	DropSessionsExcept(router Router, keep map[string]bool)
+	ListSessions(router Router, intervalSec float64) ([]SimSession, error)
+	Disconnect(router Router, username string) error
+}
+
+// Mode selects the transport backend.
+const (
+	ModeSimulate = "simulate"
+	ModeREST     = "rest"
+)
+
+// New builds a Client backed by the chosen transport. simulate keeps the
+// device emulator (default); rest talks to real devices using the supplied
+// credentials/HTTP client.
+func New(mode string, sim SimState, creds Credentials, httpc *http.Client) *Client {
+	if mode == ModeREST {
+		return &Client{tr: newRestTransport(creds, httpc)}
+	}
+	return &Client{tr: newSimTransport(sim)}
+}
+
+// Client is the frontend handed to handlers and the worker. It forwards every
+// call to the configured Transport so callers never change with the backend.
 type Client struct {
-	sim *Simulator
+	tr Transport
 }
 
+// NewClient retains the legacy simulator-only construction.
 func NewClient(sim *Simulator) *Client {
-	return &Client{sim: sim}
+	return New(ModeSimulate, sim, Credentials{}, nil)
 }
 
-func (c *Client) Register(router Router) {
-	c.sim.RegisterRouter(router.ID, router.Name)
-}
-
-func (c *Client) Unregister(routerID int64) {
-	c.sim.UnregisterRouter(routerID)
-}
-
+func (c *Client) Register(router Router)          { c.tr.Register(router) }
+func (c *Client) Unregister(routerID int64)       { c.tr.Unregister(routerID) }
 func (c *Client) Probe(router Router) (bool, error) {
-	ok, _, err := c.sim.Probe(router.ID)
+	ok, _, err := c.tr.Probe(router)
 	return ok, err
 }
-
 func (c *Client) ProbeWithTime(router Router) (bool, time.Time, error) {
-	return c.sim.Probe(router.ID)
+	return c.tr.Probe(router)
 }
-
 func (c *Client) ApplyConfig(router Router, cfg HotspotConfig) error {
-	return c.sim.ApplyHotspotConfig(router.ID, cfg.Name, cfg.RxRate, cfg.TxRate, cfg.UptimeLimit)
+	return c.tr.ApplyConfig(router, cfg)
 }
-
-// ApplyRateMultiplier boosts rates for an active rate window. Config pushes
-// are idempotent.
 func (c *Client) ApplyRateMultiplier(router Router, hotspotName string, multiplier float64) error {
-	return c.sim.ApplyRateMultiplier(router.ID, hotspotName, multiplier)
+	return c.tr.ApplyRateMultiplier(router, hotspotName, multiplier)
 }
-
 func (c *Client) SeedSessions(router Router, sessions []SimSession) {
-	for _, s := range sessions {
-		c.sim.SeedSession(router.ID, s.Username, s.MAC, s.IP, s.BytesRX, s.BytesTX)
-	}
+	c.tr.SeedSessions(router, sessions)
 }
-
 func (c *Client) DropSessionsExcept(router Router, keep map[string]bool) {
-	// no-op: simulation keeps sessions until router restarts or API disconnects
-	_ = router
-	_ = keep
+	c.tr.DropSessionsExcept(router, keep)
 }
-
 func (c *Client) ListSessions(router Router, intervalSec float64) ([]SimSession, error) {
-	return c.sim.ListSessions(router.ID, intervalSec)
+	return c.tr.ListSessions(router, intervalSec)
 }
-
 func (c *Client) Disconnect(router Router, username string) error {
-	return c.sim.DisconnectSession(router.ID, username)
+	return c.tr.Disconnect(router, username)
 }

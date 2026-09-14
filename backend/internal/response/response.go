@@ -73,5 +73,8 @@ type List[T any] struct {
 }
 
 func Paginated[T any](c *gin.Context, items []T, total int64, page, size int) {
+	if items == nil {
+		items = []T{}
+	}
 	c.JSON(http.StatusOK, List[T]{Items: items, Total: total, Page: page, Size: size})
 }

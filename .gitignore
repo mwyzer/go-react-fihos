@@ -1,6 +1,9 @@
 # Go
 backend/bin/
 backend/*.exe
+backend/fihos-api
+backend/fihos-api-t
+backend/fihos-worker
 *.test
 
 # Node

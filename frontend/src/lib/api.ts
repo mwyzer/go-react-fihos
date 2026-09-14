@@ -43,17 +43,18 @@ export function setActiveTenant(id: number | null) {
 }
 
 function loadSession(): Session | null {
-  if (cached) return cached
   try {
     const raw = localStorage.getItem(KEY)
-    if (raw) {
-      cached = JSON.parse(raw) as Session
+    if (!raw) {
+      cached = null
       return cached
     }
+    cached = JSON.parse(raw) as Session
+    return cached
   } catch {
-    /* ignore */
+    cached = null
+    return null
   }
-  return null
 }
 
 export function getUser(): User | null {

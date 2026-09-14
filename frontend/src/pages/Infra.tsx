@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { api } from '../lib/api'
+import { api, getActiveTenant, getUser } from '../lib/api'
 import { relTime } from '../lib/fmt'
 
 type Router = {
@@ -40,9 +40,9 @@ export function Infra() {
         api<Hotspot[]>('GET', '/hotspots'),
         api<Profile[]>('GET', '/profiles'),
       ])
-      setRouters(rs)
-      setHotspots(hs)
-      setProfiles(ps)
+      setRouters(rs ?? [])
+      setHotspots(hs ?? [])
+      setProfiles(ps ?? [])
       setError('')
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load')
@@ -50,6 +50,8 @@ export function Infra() {
   }
 
   useEffect(() => {
+    const u = getUser()
+    if (u != null && u.tenant_id == null && getActiveTenant() == null) return
     void load()
   }, [])
 
@@ -62,6 +64,8 @@ export function Infra() {
         ip_address: fd.get('ip') || '192.168.88.1',
         api_port: Number(fd.get('port') || 8728),
         username: fd.get('username') || 'admin',
+
+        password: fd.get('password') || '',
       })
       ;(e.currentTarget as HTMLFormElement).reset()
       await load()
@@ -105,6 +109,8 @@ export function Infra() {
         <input name="ip" placeholder="IP address" defaultValue="192.168.88.1" />
         <input name="port" placeholder="API port" defaultValue="8728" style={{ maxWidth: 100 }} />
         <input name="username" placeholder="API username" defaultValue="admin" />
+
+        <input name="password" type="password" placeholder="API password" autoComplete="new-password" />
         <button className="btn primary" type="submit">
           Add router
         </button>

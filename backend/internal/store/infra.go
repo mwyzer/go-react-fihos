@@ -24,6 +24,7 @@ type Router struct {
 	IPAddress  string     `json:"ip_address"`
 	APIPort    int        `json:"api_port"`
 	Username   string     `json:"username"`
+	Password   string     `json:"-"`
 	Status     string     `json:"status"`
 	LastSeenAt *time.Time `json:"last_seen_at"`
 	LastSyncAt *time.Time `json:"last_sync_at"`
@@ -58,7 +59,7 @@ type ConfigJob struct {
 }
 
 const profileCols = `id, tenant_id, name, rx_rate, tx_rate, session_uptime_limit, keepalive_timeout, created_by, created_at`
-const routerCols = `id, tenant_id, name, ip_address::text, api_port, username, status, last_seen_at, last_sync_at, created_at`
+const routerCols = `id, tenant_id, name, ip_address::text, api_port, username, password_enc, status, last_seen_at, last_sync_at, created_at`
 const hotspotCols = `id, tenant_id, router_id, profile_id, name, mikrotik_id, ip_range::text, status, last_config_at, applied_multiplier::float8, created_at`
 const jobCols = `id, tenant_id, hotspot_id, action, payload, status, attempts, last_error, created_at, updated_at`
 
@@ -70,7 +71,7 @@ func scanProfile(row interface{ Scan(...any) error }) (*Profile, error) {
 
 func scanRouter(row interface{ Scan(...any) error }) (*Router, error) {
 	r := &Router{}
-	err := row.Scan(&r.ID, &r.TenantID, &r.Name, &r.IPAddress, &r.APIPort, &r.Username, &r.Status, &r.LastSeenAt, &r.LastSyncAt, &r.CreatedAt)
+	err := row.Scan(&r.ID, &r.TenantID, &r.Name, &r.IPAddress, &r.APIPort, &r.Username, &r.Password, &r.Status, &r.LastSeenAt, &r.LastSyncAt, &r.CreatedAt)
 	return r, err
 }
 
@@ -102,7 +103,7 @@ func (s *Store) ListProfiles(ctx context.Context, tenantID int64) ([]Profile, er
 		return nil, err
 	}
 	defer rows.Close()
-	var out []Profile
+	var out []Profile = make([]Profile, 0)
 	for rows.Next() {
 		p, err := scanProfile(rows)
 		if err != nil {
@@ -131,7 +132,7 @@ func (s *Store) CreateRouter(ctx context.Context, tenantID int64, r *Router) (*R
 	row := s.QueryRow(ctx, `
 		INSERT INTO routers (tenant_id, name, ip_address, api_port, username, password_enc, status)
 		VALUES ($1,$2,$3::inet,$4,$5,$6,'unverified') RETURNING `+routerCols,
-		tenantID, r.Name, r.IPAddress, r.APIPort, r.Username, r.Username+"_encrypted")
+		tenantID, r.Name, r.IPAddress, r.APIPort, r.Username, r.Password)
 	created, err := scanRouter(row)
 	return created, err
 }
@@ -143,7 +144,7 @@ func (s *Store) ListRouters(ctx context.Context, tenantID int64, status string) 
 		return nil, err
 	}
 	defer rows.Close()
-	var out []Router
+	var out []Router = make([]Router, 0)
 	for rows.Next() {
 		r, err := scanRouter(rows)
 		if err != nil {
@@ -162,9 +163,9 @@ func (s *Store) RouterByID(ctx context.Context, tenantID, id int64) (*Router, er
 
 func (s *Store) UpdateRouter(ctx context.Context, tenantID, id int64, r *Router) (*Router, error) {
 	row := s.QueryRow(ctx, `
-		UPDATE routers SET name=$1, ip_address=$2::inet, api_port=$3, username=$4, status='unverified', updated_at=now()
-		WHERE tenant_id=$5 AND id=$6 RETURNING `+routerCols,
-		r.Name, r.IPAddress, r.APIPort, r.Username, tenantID, id)
+		UPDATE routers SET name=$1, ip_address=$2::inet, api_port=$3, username=$4, password_enc=$5, status='unverified', updated_at=now()
+		WHERE tenant_id=$6 AND id=$7 RETURNING `+routerCols,
+		r.Name, r.IPAddress, r.APIPort, r.Username, r.Password, tenantID, id)
 	updated, err := scanRouter(row)
 	return updated, noRows(err)
 }
@@ -235,7 +236,7 @@ func (s *Store) ListHotspots(ctx context.Context, tenantID int64, routerID int64
 		return nil, err
 	}
 	defer rows.Close()
-	var out []Hotspot
+	var out []Hotspot = make([]Hotspot, 0)
 	for rows.Next() {
 		h, err := scanHotspot(rows)
 		if err != nil {

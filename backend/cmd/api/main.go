@@ -42,16 +42,29 @@ func main() {
 
 	authSvc := auth.NewService(cfg.JWTSecret, cfg.TokenTTL, cfg.RefreshTTL)
 	st := store.New(db)
-	sim := mikrotik.NewSimulator()
+	var sim mikrotik.SimState = mikrotik.NewSimulator()
+	if cfg.SimShared {
+		sim = mikrotik.NewRedisSimulator(rdb)
+	}
+	registerAllRouters(ctx, st, sim)
 
 	engine := gin.New()
 	server.New(engine, server.Deps{
-		DB:       db,
-		Redis:    rdb,
-		Verifier: authSvc,
-		AuthSvc:  authSvc,
-		Store:    st,
-		Sim:      sim,
+		DB:           db,
+		Redis:        rdb,
+		Verifier:     authSvc,
+		AuthSvc:      authSvc,
+		Store:        st,
+		Sim:          sim,
+		MikrotikMode: cfg.MikrotikMode,
+		MikrotikCreds: mikrotik.Credentials{
+			Username: cfg.MikrotikUser,
+			Password: cfg.MikrotikPass,
+		},
+		MikrotikTimeout:      cfg.MikrotikTimeout,
+		PaymentProvider:      cfg.PaymentProvider,
+		PaymentSandboxURL:    cfg.PaymentSandboxURL,
+		PaymentWebhookSecret: cfg.PaymentWebhookSecret,
 	})
 
 	srv := &http.Server{
@@ -77,4 +90,17 @@ func main() {
 		log.Printf("shutdown: %v", err)
 	}
 	log.Println("API stopped")
+}
+
+// registerAllRouters seeds the shared device state from the DB so seeded
+// routers respond to probes without a manual simulate toggle.
+func registerAllRouters(ctx context.Context, st *store.Store, sim mikrotik.SimState) {
+	routers, err := st.RoutersAll(ctx)
+	if err != nil {
+		log.Printf("seed routers: %v", err)
+		return
+	}
+	for _, r := range routers {
+		sim.RegisterRouter(r.ID, r.Name)
+	}
 }

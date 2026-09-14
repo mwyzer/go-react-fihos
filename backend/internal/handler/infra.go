@@ -93,10 +93,11 @@ type routerReq struct {
 	IPAddress string `json:"ip_address"`
 	APIPort   int    `json:"api_port"`
 	Username  string `json:"username"`
+	Password  string `json:"password"`
 }
 
 func (h *H) mtRouter(r *store.Router) mikrotik.Router {
-	return mikrotik.Router{ID: r.ID, Name: r.Name, IPAddress: r.IPAddress, APIPort: r.APIPort, Username: r.Username}
+	return mikrotik.Router{ID: r.ID, Name: r.Name, IPAddress: r.IPAddress, APIPort: r.APIPort, Username: r.Username, Password: r.Password}
 }
 
 func (h *H) PostRouter(c *gin.Context) {
@@ -116,7 +117,7 @@ func (h *H) PostRouter(c *gin.Context) {
 		req.APIPort = 8728
 	}
 	r, err := h.St.CreateRouter(c.Request.Context(), tid, &store.Router{
-		Name: req.Name, IPAddress: req.IPAddress, APIPort: req.APIPort, Username: req.Username,
+		Name: req.Name, IPAddress: req.IPAddress, APIPort: req.APIPort, Username: req.Username, Password: req.Password,
 	})
 	if err != nil {
 		h.fail(c, err, "")
@@ -175,7 +176,7 @@ func (h *H) PatchRouter(c *gin.Context) {
 		req.APIPort = 8728
 	}
 	r, err := h.St.UpdateRouter(c.Request.Context(), tid, id, &store.Router{
-		Name: req.Name, IPAddress: req.IPAddress, APIPort: req.APIPort, Username: req.Username,
+		Name: req.Name, IPAddress: req.IPAddress, APIPort: req.APIPort, Username: req.Username, Password: req.Password,
 	})
 	if err != nil {
 		h.fail(c, err, "Router not found")

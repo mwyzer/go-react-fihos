@@ -6,15 +6,15 @@ import (
 )
 
 type Customer struct {
-	ID        int64      `json:"id"`
-	TenantID  int64      `json:"tenant_id"`
-	HotspotID *int64     `json:"hotspot_id"`
-	Name      string     `json:"name"`
-	Phone     string     `json:"phone"`
-	Address   string     `json:"address"`
-	Status    string     `json:"status"`
-	CreatedAt time.Time  `json:"created_at"`
-	UpdatedAt time.Time  `json:"updated_at"`
+	ID        int64     `json:"id"`
+	TenantID  int64     `json:"tenant_id"`
+	HotspotID *int64    `json:"hotspot_id"`
+	Name      string    `json:"name"`
+	Phone     string    `json:"phone"`
+	Address   string    `json:"address"`
+	Status    string    `json:"status"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 const customerCols = `id, tenant_id, hotspot_id, name, phone, address, status, created_at, updated_at`

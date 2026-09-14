@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { api } from '../lib/api'
+import { api, getActiveTenant, getUser } from '../lib/api'
 import { fmtDur, relTime } from '../lib/fmt'
 
 type Alert = {
@@ -39,7 +39,7 @@ export function Alerts() {
       const qs = new URLSearchParams({ page: String(page), size: '15' })
       if (statusFilter) qs.set('status', statusFilter)
       const res = await api<Page<Alert>>('GET', `/alerts?${qs.toString()}`)
-      setItems(res.items)
+      setItems(res.items ?? [])
       setTotal(res.total)
       setError('')
     } catch (err) {
@@ -48,6 +48,8 @@ export function Alerts() {
   }
 
   useEffect(() => {
+    const u = getUser()
+    if (u != null && u.tenant_id == null && getActiveTenant() == null) return
     void load()
   }, [page, statusFilter])
 

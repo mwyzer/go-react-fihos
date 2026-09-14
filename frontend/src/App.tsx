@@ -8,6 +8,8 @@ import Vouchers from './pages/Vouchers'
 import Sessions from './pages/Sessions'
 import Alerts from './pages/Alerts'
 import RateWindows from './pages/RateWindows'
+import Customers from './pages/Customers'
+import Billing from './pages/Billing'
 import Team from './pages/Team'
 
 const nav = [
@@ -15,6 +17,8 @@ const nav = [
   { path: '/routers', label: 'Routers & Hotspots' },
   { path: '/vouchers', label: 'Vouchers' },
   { path: '/sessions', label: 'Sessions' },
+  { path: '/customers', label: 'Pelanggan' },
+  { path: '/billing', label: 'Billing' },
   { path: '/alerts', label: 'Anomalies' },
   { path: '/rate-windows', label: 'Rate Boost' },
   { path: '/team', label: 'Team & Settings' },
@@ -22,15 +26,16 @@ const nav = [
 
 type TenantOpt = { id: number; name: string; slug: string; status: string }
 
-function TenantPicker({ onPick }: { onPick: () => void }) {
+function TenantPicker({ route, onPick }: { route: string; onPick: () => void }) {
   const [tenants, setTenants] = useState<TenantOpt[]>([])
   const [value, setValue] = useState<number | null>(() => getActiveTenant())
 
   useEffect(() => {
     void api<{ items: TenantOpt[] }>('GET', '/admin/tenants')
       .then((res) => {
-        setTenants(res.items)
-        const active = getActiveTenant() ?? res.items[0]?.id ?? null
+        const sorted = [...res.items].sort((a, b) => a.id - b.id)
+        setTenants(sorted)
+        const active = getActiveTenant() ?? sorted[0]?.id ?? null
         if (active !== getActiveTenant()) {
           setActiveTenant(active)
           setValue(active)
@@ -42,6 +47,16 @@ function TenantPicker({ onPick }: { onPick: () => void }) {
       .catch(() => setTenants([]))
     // run once on mount; onPick is stable enough via setTick
   }, [])
+
+  // If the stored tenant is missing (e.g. cleared or reloaded into a deep
+  // link), recover it as soon as the list is known and a route changes.
+  useEffect(() => {
+    if (tenants.length === 0 || getActiveTenant() != null) return
+    const active = tenants[0]?.id ?? null
+    setActiveTenant(active)
+    setValue(active)
+    onPick()
+  }, [route])
 
   function onSelect(id: string) {
     const v = Number(id) || null
@@ -96,6 +111,12 @@ export function App() {
     case '/rate-windows':
       content = <RateWindows />
       break
+    case '/customers':
+      content = <Customers />
+      break
+    case '/billing':
+      content = <Billing />
+      break
     case '/team':
       content = <Team />
       break
@@ -125,7 +146,7 @@ export function App() {
           <div className="muted small truncate">
             {me.full_name} · {me.role}
           </div>
-          {isAdmin && <TenantPicker onPick={() => setTick((n) => n + 1)} />}
+          {isAdmin && <TenantPicker route={page} onPick={() => setTick((n) => n + 1)} />}
           <button className="btn ghost small" onClick={logout}>
             Sign out
           </button>
