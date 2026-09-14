@@ -71,6 +71,8 @@ func (h *H) fail(c *gin.Context, err error, notFoundMsg string) {
 		response.NotFound(c, notFoundMsg)
 	case errors.Is(err, store.ErrConflict):
 		response.Conflict(c, "conflict", "Resource already exists or is in use")
+	case errors.Is(err, store.ErrInsufficient):
+		response.Error(c, 409, "insufficient_balance", "Insufficient balance", nil)
 	case errors.Is(err, mikrotik.ErrRouterOffline):
 		response.Error(c, 503, "router_offline", "Router is offline", nil)
 	case errors.Is(err, mikrotik.ErrUnknownRouter):

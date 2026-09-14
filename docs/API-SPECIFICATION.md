@@ -151,8 +151,36 @@ Export CSV of line-item usage per period (owner/admin).
 ### GET /voucher-batches/{id}/sales *(admin)*
 Per-batch sales report (issued / sold / redeemed metrics).
 
-### (Post-MVP) POST /payments
-Initiate payment for voucher purchase; webhook endpoints under `/payments/webhook/*`.
+### POST /voucher-batches/{id}/sales *(admin)*
+Per-batch sales report (issued / sold / redeemed metrics).
+
+### Customer wallet (prepaid balance)
+
+Customers carry a prepaid balance (`customers.balance`). Top-ups go through the payment gateway (mock settles instantly; sandbox completes via webhook) and credit the wallet net of the gateway fee. Paying a monthly billing window can be debited from the wallet. Balance-mutating actions are owner/admin; reads are any tenant role.
+
+### POST /customers/{id}/topup *(owner/admin)*
+Body: `{ "amount": 200000 }` → `201` `{ "async": false, "payment_url": "...", "payment": { "id", "status", "external_ref", "customer_id", "net_amount" } }`.
+Credits the wallet with `net_amount` (`amount × (1 − fee)`); emits audit `customer.topup`.
+Errors: `409 insufficient_balance` (never here), `404 not_found`, invalid amount → `422`.
+
+### GET /customers/{id}/wallet
+→ `200` `{ "customer_id", "balance", "transactions": { "items": [ { "id", "type": "topup|bill_payment|adjustment", "amount", "balance_after", "note", "created_at" } ], "total", "page", "size" } }`.
+
+### POST /customers/{id}/wallet/adjust *(owner/admin)*
+Body: `{ "amount": 50000, "note": "cash deposit" }` (signed) → `200` `{ "id", "adjusted", "balance" }`.
+Audit `customer.wallet_adjust`. Negative adjustments are limited to available balance.
+Errors: `409 insufficient_balance`, `404 not_found`.
+
+### POST /billing/{id}/pay
+Body: `{ "method": "wallet" | "manual" }` (default `wallet`) → `200` `{ "window": {...}, "payment": {...} }`.
+`method=wallet` debits the customer balance atomically; `method=manual` bypasses the wallet (cash/walk-in). Emits audit `billing.paid`.
+Errors: `409 insufficient_balance`, `409 already_paid`, `404 not_found`.
+
+### Payments
+`payments` is polymorphic: `vouchers` (portal voucher purchase) vs `wallet_topup`, selected by `entity_type` (`customer_id` set for wallet top-ups). Gateway providers: mock (instant settle), sandbox (async, completed via webhook).
+
+### GET /payments *(owner/admin)*
+Query: `status=`, `kind=wallet_topup|voucher`, `page=`, `size=` → paginated list (payments screen / financial ledger).
 
 ## Analytics API
 

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { api, getActiveTenant, getUser } from '../lib/api'
 import { relTime } from '../lib/fmt'
+import { MapCanvas, type MapMarker } from '../components/MapCanvas'
 
 type Router = {
   id: number
@@ -103,6 +104,8 @@ export function Infra() {
       </header>
 
       {error && <div className="error-banner">{error}</div>}
+
+      {routers.length > 0 && <RouterMap routers={routers} hotspots={hotspots} />}
 
       <form className="card inline-form" onSubmit={createRouter}>
         <input name="name" placeholder="Router name" required />
@@ -273,6 +276,47 @@ function HotspotPanel({
       </div>
     </div>
   )
+}
+
+function RouterMap({ routers, hotspots }: { routers: Router[]; hotspots: Hotspot[] }) {
+  const markers: MapMarker[] = routers.map((r) => ({
+    id: r.id,
+    name: r.name,
+    lat: -6.2 + (hashId(r.id) % 1000) / 4000 - 0.125,
+    lon: 106.82 + (Math.floor(hashId(r.id) / 1000) % 1000) / 2800 - 0.18,
+    color: r.status === 'online' ? '#16a34a' : '#dc2626',
+    detail: `${r.ip_address}:${r.api_port} · ${r.status} · ${hotspots.filter((h) => h.router_id === r.id).length} hotspot(s)`,
+  }))
+
+  const online = routers.filter((r) => r.status === 'online').length
+  const offline = routers.length - online
+
+  return (
+    <div className="card map-card">
+      <div className="row-space">
+        <h3>Router map</h3>
+        <div className="map-legend">
+          <span>
+            <span className="dot" style={{ background: '#16a34a' }} />
+            {online} online
+          </span>
+          <span>
+            <span className="dot" style={{ background: '#dc2626' }} />
+            {offline} offline
+          </span>
+        </div>
+      </div>
+      <MapCanvas markers={markers} />
+      <p className="muted small">Locations are approximate — click a marker for details.</p>
+    </div>
+  )
+}
+
+function hashId(id: number): number {
+  let h = (id * 2654435761) >>> 0
+  h = ((h >> 16) ^ h) * 0x45d9f3b
+  h = ((h >> 16) ^ h) >>> 0
+  return h
 }
 
 export default Infra

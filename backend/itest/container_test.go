@@ -8,6 +8,7 @@ package itest
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http/httptest"
 	"os"
@@ -24,7 +25,7 @@ import (
 	"github.com/redis/go-redis/v9"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
-	"github.com/testcontainers/testcontainers-go/modules/redis"
+	tcredismodule "github.com/testcontainers/testcontainers-go/modules/redis"
 	"github.com/testcontainers/testcontainers-go/wait"
 
 	"fihos/backend/internal/auth"
@@ -53,14 +54,18 @@ func TestContainerSmoke(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = pgc.Terminate(ctx) })
 
-	rc, err := redis.Run(ctx, "redis:7-alpine",
+	rc, err := tcredismodule.Run(ctx, "redis:7-alpine",
 		testcontainers.WithWaitStrategy(wait.ForLog("* Ready to accept connections")))
 	if err != nil {
 		t.Fatalf("redis container: %v", err)
 	}
 	t.Cleanup(func() { _ = rc.Terminate(ctx) })
 
-	dbURL := "postgres://" + strings.TrimPrefix(pgc.URI(), "postgres://")
+	conn, err := pgc.ConnectionString(ctx, "sslmode=disable")
+	if err != nil {
+		t.Fatalf("postgres connection string: %v", err)
+	}
+	dbURL := "postgres://" + strings.TrimPrefix(conn, "postgres://")
 
 	_, thisFile, _, _ := runtime.Caller(0)
 	migrations := filepath.ToSlash(filepath.Join(filepath.Dir(thisFile), "..", "..", "migrations"))
@@ -79,7 +84,11 @@ func TestContainerSmoke(t *testing.T) {
 	}
 	defer pool.Close()
 
-	rdb := redis.NewClient(&redis.Options{Addr: strings.TrimPrefix(rc.URI(), "redis://"), DB: 0})
+	connStr, err := rc.ConnectionString(ctx)
+	if err != nil {
+		t.Fatalf("redis connection string: %v", err)
+	}
+	rdb := redis.NewClient(&redis.Options{Addr: strings.TrimPrefix(connStr, "redis://"), DB: 0})
 	defer rdb.Close()
 
 	st := store.New(pool)
@@ -189,6 +198,8 @@ func runContainerChecks(t *testing.T) {
 		t.Fatalf("create customer body has no id: %s", raw)
 	}
 
+	runWalletChecks(t, ownerTok, owner.User.TenantID)
+
 	tenant1 := int64(1)
 	tenant2 := int64(2)
 
@@ -233,4 +244,156 @@ func runContainerChecks(t *testing.T) {
 	// Admin without overlay rejected.
 	code, _ = do(t, "GET", "/customers", adminTok, nil, nil)
 	expectStatus(t, code, 403, "container admin GET /customers without overlay")
+}
+
+// runWalletChecks exercises the customer prepaid balance: top-up through the
+// mock gateway (instant settle -> crediting), manual adjustment, and paying a
+// monthly billing window from the balance.
+func runWalletChecks(t *testing.T, ownerTok string, tid *int64) {
+	t.Helper()
+
+	// Token-status customer so billing generation creates a window for them.
+	code, raw := do(t, "POST", "/customers", ownerTok, tid, map[string]any{
+		"name": fmt.Sprintf("Wallet Customer %d", time.Now().UnixNano()%100000),
+		"status": "token",
+		"phone":  fmt.Sprintf("08%09d", time.Now().UnixNano()%1000000000),
+	})
+	expectStatus(t, code, 201, "wallet create customer")
+	var customer struct {
+		ID int64 `json:"id"`
+	}
+	if err := json.Unmarshal(raw, &customer); err != nil || customer.ID == 0 {
+		t.Fatalf("wallet create customer body: %s err=%v", raw, err)
+	}
+
+	// Top-up settles instantly (mock provider) and credits the wallet.
+	code, raw = do(t, "POST", fmt.Sprintf("/customers/%d/topup", customer.ID), ownerTok, tid, map[string]any{"amount": 200000})
+	expectStatus(t, code, 201, "wallet topup")
+	var topup struct {
+		Async      bool `json:"async"`
+		PaymentURL any  `json:"payment_url"`
+		Payment    struct {
+			Status    string `json:"status"`
+			ExternalRef string `json:"external_ref"`
+			CustomerID *int64 `json:"customer_id"`
+		} `json:"payment"`
+	}
+	if err := json.Unmarshal(raw, &topup); err != nil {
+		t.Fatalf("wallet topup body: %v", err)
+	}
+	if topup.Async {
+		t.Fatalf("wallet topup should settle instantly with mock provider: %s", raw)
+	}
+	if topup.Payment.Status != "succeeded" {
+		t.Fatalf("wallet topup status = %q", topup.Payment.Status)
+	}
+	if topup.Payment.CustomerID == nil || *topup.Payment.CustomerID != customer.ID {
+		t.Fatalf("wallet topup customer_id = %v", topup.Payment.CustomerID)
+	}
+
+	// Balance now reflects the credited top-up (net of the 3% fee).
+	code, raw = do(t, "GET", fmt.Sprintf("/customers/%d/wallet", customer.ID), ownerTok, tid, nil)
+	expectStatus(t, code, 200, "wallet get")
+	var wallet struct {
+		Balance      float64 `json:"balance"`
+		Transactions struct {
+			Items []struct {
+				Type   string  `json:"type"`
+				Amount float64 `json:"amount"`
+			} `json:"items"`
+			Total int64 `json:"total"`
+		} `json:"transactions"`
+	}
+	if err := json.Unmarshal(raw, &wallet); err != nil {
+		t.Fatalf("wallet get body: %v", err)
+	}
+	wantBalance := 200000 * 0.97
+	if wallet.Balance < wantBalance-1 || wallet.Balance > wantBalance+1 {
+		t.Fatalf("wallet balance = %v, want ~%v", wallet.Balance, wantBalance)
+	}
+	if wallet.Transactions.Total != 1 || wallet.Transactions.Items[0].Type != "topup" {
+		t.Fatalf("wallet ledger = %s", raw)
+	}
+
+	// Manual adjustment credits cash received offline.
+	code, raw = do(t, "POST", fmt.Sprintf("/customers/%d/wallet/adjust", customer.ID), ownerTok, tid, map[string]any{
+		"amount": 50000, "note": "cash",
+	})
+	expectStatus(t, code, 200, "wallet adjust")
+	var adjusted struct {
+		Balance float64 `json:"balance"`
+	}
+	if err := json.Unmarshal(raw, &adjusted); err != nil {
+		t.Fatalf("wallet adjust body: %v", err)
+	}
+	if adjusted.Balance < wantBalance+50000-1 || adjusted.Balance > wantBalance+50000+1 {
+		t.Fatalf("wallet balance after adjust = %v, want ~%v", adjusted.Balance, wantBalance+50000)
+	}
+
+	// Negative adjustment beyond balance is rejected.
+	code, _ = do(t, "POST", fmt.Sprintf("/customers/%d/wallet/adjust", customer.ID), ownerTok, tid, map[string]any{
+		"amount": -9999999, "note": "nope",
+	})
+	expectStatus(t, code, 409, "wallet adjust over-debit")
+
+	// Generate the monthly window, then pay it from the balance.
+	code, raw = do(t, "POST", "/billing/generate", ownerTok, tid, nil)
+	expectStatus(t, code, 201, "wallet billing generate")
+	var gen struct {
+		Generated int `json:"generated"`
+	}
+	if err := json.Unmarshal(raw, &gen); err != nil || gen.Generated < 1 {
+		t.Fatalf("wallet billing generate = %d: %s", gen.Generated, raw)
+	}
+	var windowID int64
+	code, raw = do(t, "GET", "/billing", ownerTok, tid, nil)
+	expectStatus(t, code, 200, "wallet list billing")
+	var billing struct {
+		Items []struct {
+			ID         int64  `json:"id"`
+			CustomerID int64  `json:"customer_id"`
+			Status     string `json:"status"`
+			Amount     float64 `json:"amount"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal(raw, &billing); err != nil {
+		t.Fatalf("wallet billing body: %v", err)
+	}
+	for _, w := range billing.Items {
+		if w.CustomerID == customer.ID && w.Status != "paid" {
+			windowID = w.ID
+			break
+		}
+	}
+	if windowID == 0 {
+		t.Fatalf("no unpaid window for wallet customer: %s", raw)
+	}
+
+	code, raw = do(t, "POST", fmt.Sprintf("/billing/%d/pay", windowID), ownerTok, tid, map[string]any{"method": "wallet"})
+	expectStatus(t, code, 200, "wallet pay from balance")
+	var paid struct {
+		Status string `json:"status"`
+	}
+	if err := json.Unmarshal(raw, &paid); err != nil || paid.Status != "paid" {
+		t.Fatalf("wallet pay window body: %s", raw)
+	}
+
+	// Balance dropped by the window amount and the ledger shows both entries.
+	code, raw = do(t, "GET", fmt.Sprintf("/customers/%d/wallet", customer.ID), ownerTok, tid, nil)
+	expectStatus(t, code, 200, "wallet get after pay")
+	var after struct {
+		Balance float64 `json:"balance"`
+		Transactions struct {
+			Total int64 `json:"total"`
+		} `json:"transactions"`
+	}
+	if err := json.Unmarshal(raw, &after); err != nil {
+		t.Fatalf("wallet after-pay body: %v", err)
+	}
+	if after.Balance < adjusted.Balance-150000-1 || after.Balance > adjusted.Balance-150000+1 {
+		t.Fatalf("wallet balance after pay = %v, want ~%v (adjusted %v - monthly fee)", after.Balance, adjusted.Balance-150000, adjusted.Balance)
+	}
+	if after.Transactions.Total != 3 {
+		t.Fatalf("wallet ledger total = %d, want 3 (topup, adjust, bill_payment): %s", after.Transactions.Total, raw)
+	}
 }

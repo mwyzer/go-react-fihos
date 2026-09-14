@@ -496,6 +496,74 @@ th.right {
   border-color: var(--accent);
 }
 
+/* openlayers map */
+.map-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.map-canvas {
+  width: 100%;
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  background: #e8eaed;
+}
+
+.map-popup {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18);
+  padding: 0.5rem 0.7rem;
+  font-size: 13px;
+  display: none;
+  white-space: nowrap;
+}
+
+.map-popup.visible {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.map-popup strong {
+  color: var(--text);
+}
+
+.map-popup span {
+  color: var(--muted);
+}
+
+.map-popup::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  bottom: -6px;
+  transform: translateX(-50%);
+  border-left: 6px solid transparent;
+  border-right: 6px solid transparent;
+  border-top: 6px solid var(--panel);
+}
+
+.map-legend {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.map-legend .dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  display: inline-block;
+  margin-right: 0.3rem;
+}
+
 @media (max-width: 820px) {
   .shell {
     grid-template-columns: 1fr;
@@ -518,4 +586,60 @@ th.right {
   .grid-2 {
     grid-template-columns: 1fr;
   }
+  .map-canvas {
+    height: 280px !important;
+  }
+}
+
+/* wallet */
+.wallet-balance {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.wallet-balance.pos {
+  color: var(--ok);
+}
+
+.wallet-panel {
+  padding: 0.25rem 0.5rem;
+}
+
+.wallet-actions {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  margin-bottom: 0.75rem;
+}
+
+.wallet-actions .inline-form {
+  flex-wrap: nowrap;
+}
+
+.wallet-actions input[type='number'] {
+  max-width: 150px;
+}
+
+.pos-amt {
+  color: var(--ok);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.neg-amt {
+  color: var(--err);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.error-banner.ok-banner {
+  background: color-mix(in srgb, var(--ok) 12%, white);
+  border: 1px solid color-mix(in srgb, var(--ok) 40%, white);
+  color: var(--ok);
+}
+
+.error-banner.ok-banner a {
+  color: var(--ok);
 }

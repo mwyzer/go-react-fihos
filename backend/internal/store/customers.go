@@ -13,15 +13,16 @@ type Customer struct {
 	Phone     string    `json:"phone"`
 	Address   string    `json:"address"`
 	Status    string    `json:"status"`
+	Balance   float64   `json:"balance"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
-const customerCols = `id, tenant_id, hotspot_id, name, phone, address, status, created_at, updated_at`
+const customerCols = `id, tenant_id, hotspot_id, name, phone, address, status, balance::float8, created_at, updated_at`
 
 func scanCustomer(row interface{ Scan(...any) error }) (*Customer, error) {
 	c := &Customer{}
-	err := row.Scan(&c.ID, &c.TenantID, &c.HotspotID, &c.Name, &c.Phone, &c.Address, &c.Status, &c.CreatedAt, &c.UpdatedAt)
+	err := row.Scan(&c.ID, &c.TenantID, &c.HotspotID, &c.Name, &c.Phone, &c.Address, &c.Status, &c.Balance, &c.CreatedAt, &c.UpdatedAt)
 	return c, err
 }
 

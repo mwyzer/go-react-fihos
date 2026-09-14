@@ -140,6 +140,10 @@ func (h *H) PostBillingGenerate(c *gin.Context) {
 	response.Ok(c, 201, gin.H{"generated": n})
 }
 
+type billingPayReq struct {
+	Method string `json:"method"`
+}
+
 func (h *H) PostBillingPay(c *gin.Context) {
 	tid := h.requireTenant(c)
 	if tid == 0 {
@@ -150,12 +154,32 @@ func (h *H) PostBillingPay(c *gin.Context) {
 		response.BadRequest(c, "invalid window id", nil)
 		return
 	}
-	w, err := h.St.MarkWindowPaid(c.Request.Context(), tid, id)
+	var req billingPayReq
+	_ = c.ShouldBindJSON(&req)
+	if req.Method == "" {
+		req.Method = "wallet"
+	}
+
+	var w *store.BillingWindow
+	customerID := int64(0)
+	switch req.Method {
+	case "manual":
+		w, err = h.St.MarkWindowPaid(c.Request.Context(), tid, id)
+	case "wallet":
+		customerID, w, err = h.St.DebitWalletForBillByWindow(c.Request.Context(), tid, id)
+	default:
+		response.ValidationFailed(c, gin.H{"method": "invalid"})
+		return
+	}
 	if err != nil {
+		if err == store.ErrInsufficient {
+			response.Error(c, 409, "insufficient_balance", "Customer balance is not enough to cover this bill", nil)
+			return
+		}
 		h.fail(c, err, "Billing window not found")
 		return
 	}
-	h.audit(c, "billing.paid", "billing_window", &w.ID, nil)
+	h.audit(c, "billing.paid", "billing_window", &w.ID, gin.H{"method": req.Method, "customer_id": customerID})
 	response.Ok(c, 200, w)
 }
 

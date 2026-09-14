@@ -114,8 +114,8 @@ func (s *Store) UpsertSettings(ctx context.Context, tenantID int64, title, messa
 		INSERT INTO settings (tenant_id, portal_title, portal_message)
 		VALUES ($1, $2, $3)
 		ON CONFLICT (tenant_id) DO UPDATE
-		SET portal_title = COALESCE(NULLIF(EXCLUDED.portal_title,''), settings.portal_title),
-		    portal_message = COALESCE(NULLIF(EXCLUDED.portal_message,''), settings.portal_message),
+		SET portal_title = COALESCE(EXCLUDED.portal_title, settings.portal_title),
+		    portal_message = COALESCE(EXCLUDED.portal_message, settings.portal_message),
 		    updated_at = now()`, tenantID, title, message)
 	return err
 }

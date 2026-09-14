@@ -18,9 +18,12 @@ type Page<T> = { items: T[]; total: number; page: number; size: number }
 export function Team() {
   const me = getUser()
   const [users, setUsers] = useState<User[]>([])
-  const [settings, setSettings] = useState<Settings | null>(null)
+  const [portalTitle, setPortalTitle] = useState('')
+  const [portalMessage, setPortalMessage] = useState('')
   const [error, setError] = useState('')
+  const [notice, setNotice] = useState('')
   const [busy, setBusy] = useState(false)
+  const [saving, setSaving] = useState(false)
   const isAdmin = me?.role === 'admin'
 
   async function load() {
@@ -30,7 +33,8 @@ export function Team() {
         api<Settings>('GET', '/settings'),
       ])
       setUsers(us.items ?? [])
-      setSettings(s)
+      setPortalTitle(s?.portal_title ?? '')
+      setPortalMessage(s?.portal_message ?? '')
       setError('')
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load')
@@ -74,16 +78,20 @@ export function Team() {
 
   async function saveSettings(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
-    const fd = new FormData(e.currentTarget)
+    setSaving(true)
+    setNotice('')
     try {
       const s = await api<Settings>('PUT', '/settings', {
-        portal_title: fd.get('portal_title') || '',
-        portal_message: fd.get('portal_message') || '',
+        portal_title: portalTitle,
+        portal_message: portalMessage,
       })
-      setSettings(s)
-      setError('')
+      setPortalTitle(s?.portal_title ?? '')
+      setPortalMessage(s?.portal_message ?? '')
+      setNotice('Settings saved')
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Save failed')
+    } finally {
+      setSaving(false)
     }
   }
 
@@ -185,15 +193,29 @@ export function Team() {
             <h3>Captive portal</h3>
             <label>
               Portal title
-              <input name="portal_title" defaultValue={settings?.portal_title ?? ''} placeholder="Selamat datang di MyWiFi" />
+              <input
+                name="portal_title"
+                maxLength={120}
+                value={portalTitle}
+                onChange={(e) => setPortalTitle(e.target.value)}
+                placeholder="Selamat datang di MyWiFi"
+              />
             </label>
             <label>
               Portal message
-              <textarea name="portal_message" defaultValue={settings?.portal_message ?? ''} rows={3} />
+              <textarea
+                name="portal_message"
+                rows={3}
+                value={portalMessage}
+                onChange={(e) => setPortalMessage(e.target.value)}
+              />
             </label>
-            <button className="btn primary" type="submit">
-              Save settings
-            </button>
+            <div className="form-actions">
+              {notice && <span className="muted small">{notice}</span>}
+              <button className="btn primary" type="submit" disabled={saving}>
+                {saving ? 'Saving…' : 'Save settings'}
+              </button>
+            </div>
           </form>
 
           <form className="card" onSubmit={changePassword}>

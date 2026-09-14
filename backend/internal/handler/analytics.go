@@ -71,7 +71,11 @@ func (h *H) ListPayments(c *gin.Context) {
 		return
 	}
 	page, size := h.page(c)
-	items, total, err := h.St.ListPayments(c.Request.Context(), tid, c.Query("status"), page, size)
+	kind := c.Query("kind")
+	if kind != "wallet_topup" && kind != "voucher" {
+		kind = ""
+	}
+	items, total, err := h.St.ListPayments(c.Request.Context(), tid, c.Query("status"), kind, page, size)
 	if err != nil {
 		response.Internal(c, err)
 		return

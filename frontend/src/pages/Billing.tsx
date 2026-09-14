@@ -62,9 +62,9 @@ export function Billing() {
     }
   }
 
-  async function pay(w: Window) {
+  async function pay(w: Window, method: 'wallet' | 'manual') {
     try {
-      await api('POST', `/billing/${w.id}/pay`)
+      await api('POST', `/billing/${w.id}/pay`, { method })
       await load()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Mark paid failed')
@@ -132,9 +132,14 @@ export function Billing() {
                 {isOwner && (
                   <td className="right">
                     {w.status !== 'paid' && (
-                      <button className="btn mini" onClick={() => void pay(w)}>
-                        Mark paid
-                      </button>
+                      <>
+                        <button className="btn mini" onClick={() => void pay(w, 'wallet')}>
+                          Bayar saldo
+                        </button>
+                        <button className="btn mini" onClick={() => void pay(w, 'manual')}>
+                          Manual
+                        </button>
+                      </>
                     )}
                   </td>
                 )}

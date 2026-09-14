@@ -125,7 +125,20 @@ func (s *Store) ListPendingWindows(ctx context.Context, tenantID int64) ([]Billi
 }
 
 func (s *Store) MarkWindowPaid(ctx context.Context, tenantID, id int64) (*BillingWindow, error) {
-	row := s.QueryRow(ctx, `
+	tx, err := s.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback(ctx)
+	w, err := markWindowPaidTx(ctx, tx, tenantID, id)
+	if err != nil {
+		return nil, err
+	}
+	return w, tx.Commit(ctx)
+}
+
+func markWindowPaidTx(ctx context.Context, tx pgx.Tx, tenantID, id int64) (*BillingWindow, error) {
+	row := tx.QueryRow(ctx, `
 		UPDATE billing_windows bw SET status='paid', paid_at=now()
 		WHERE bw.tenant_id=$1 AND bw.id=$2
 		RETURNING bw.id, bw.tenant_id, bw.customer_id,

@@ -180,6 +180,9 @@ func New(engine *gin.Engine, deps Deps) *gin.Engine {
 			customersWrite := customers.Group("", middleware.Roles("owner", "admin"))
 			customersWrite.POST("", h.PostCustomer)
 			customersWrite.PATCH("/:id/status", h.PatchCustomerStatus)
+			customersWrite.POST("/:id/topup", h.PostCustomerTopup)
+			customersWrite.POST("/:id/wallet/adjust", h.PostWalletAdjust)
+			customers.GET("/:id/wallet", h.GetCustomerWallet)
 		}
 
 		billing := api.Group("/billing", middleware.RequireTenant)

@@ -18,6 +18,8 @@ const BASE = '/api/v1'
 const KEY = 'fihos.session'
 const TENANT_KEY = 'fihos.activeTenant'
 
+const EXPIRY_BUFFER_MS = 30_000
+
 let cached: Session | null = null
 
 export function getActiveTenant(): number | null {
@@ -121,7 +123,12 @@ async function refreshNow(): Promise<boolean> {
 }
 
 export async function api<T = unknown>(method: string, path: string, body?: unknown): Promise<T> {
-  const s = loadSession()
+  let s = loadSession()
+  const authless = path === '/auth/login' || path === '/auth/refresh'
+  if (!authless && s?.refresh && s.expiresAt - EXPIRY_BUFFER_MS <= Date.now()) {
+    refreshing = refreshing ?? refreshNow().finally(() => (refreshing = null))
+    if (await refreshing) s = loadSession()
+  }
   const headers: Record<string, string> = {}
   if (body !== undefined) headers['Content-Type'] = 'application/json'
   if (s?.access) headers['Authorization'] = `Bearer ${s.access}`

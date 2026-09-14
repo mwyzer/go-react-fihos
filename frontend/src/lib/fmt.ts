@@ -40,6 +40,12 @@ export function relTime(iso?: string | null): string {
   return `${Math.round(gap / 86_400_000)}d ago`
 }
 
+export function fmtRp(n: number | null | undefined): string {
+  if (n == null) return '—'
+  const v = new Intl.NumberFormat('id-ID', { maximumFractionDigits: 0 }).format(n)
+  return `Rp ${v}`
+}
+
 export function toISO(v: string): string {
   return v ? new Date(v).toISOString() : ''
 }
