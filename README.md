@@ -47,21 +47,21 @@ flowchart LR
 
     subgraph External
         MT["MikroTik routers<br/>REST transport (simulate by default)"]
-        Gateway["Payment provider<br/>mock | sandbox"]
+        Gateway["Payment provider<br/>mock / sandbox"]
     end
 
-    Browser -->|HTTP| Web
-    EndUser -->|hotspot portal / redeem| API
-    Web -->|proxy /api →| API
-    API -->|SQL| PG
-    API -->|sim state (SIM_SHARED) / cache| Redis
-    Worker -->|SQL| PG
-    Worker -->|sim state| Redis
-    API <-->|router sync| MT
-    Worker <-->|probe / config jobs| MT
-    API <-->|create payment / checkout| Gateway
-    Gateway -->|HMAC webhook → /payments/:ref/complete| API
-    Migrate -->|apply schema →| PG
+    Browser -->|"HTTP"| Web
+    EndUser -->|"hotspot portal / redeem"| API
+    Web -->|"proxy /api"| API
+    API -->|"SQL"| PG
+    API -->|"sim state (SIM_SHARED) / cache"| Redis
+    Worker -->|"SQL"| PG
+    Worker -->|"sim state"| Redis
+    API <-->|"router sync"| MT
+    Worker <-->|"probe / config jobs"| MT
+    API <-->|"create payment / checkout"| Gateway
+    Gateway -->|"HMAC webhook / payments/:ref/complete"| API
+    Migrate -->|"apply schema"| PG
 ```
 
 ### Data flow
