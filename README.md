@@ -161,6 +161,88 @@ erDiagram
     users ||--o{ audit_logs : "performed by"
 ```
 
+### State machines
+
+```mermaid
+stateDiagram-v2
+    direction LR
+
+    state "Voucher" as voucher {
+        [*] --> unused
+        unused --> redeemed: redeem on portal
+        unused --> revoked: operator revokes
+        unused --> expired: expires_at passed
+        redeemed --> expired: expires_at passed
+        revoked --> [*]
+        expired --> [*]
+    }
+
+    state "Session" as session {
+        [*] --> active
+        active --> closing: user disconnects
+        active --> closed: timeout / admin force
+        closing --> closed
+        closed --> [*]
+    }
+
+    state "Payment" as payment {
+        [*] --> pending
+        pending --> succeeded: gateway settles / webhook verifies
+        pending --> failed: gateway rejects / timeout
+        succeeded --> refunded: operator refunds
+        failed --> [*]
+        refunded --> [*]
+    }
+
+    state "Billing window" as billing {
+        [*] --> draft
+        draft --> issued: generator runs
+        issued --> paid: paid from wallet / manual
+        issued --> overdue: period end passed
+        overdue --> paid: settled late
+        paid --> [*]
+    }
+
+    state "Customer" as customer {
+        [*] --> active
+        active --> token: token-based access
+        active --> expired: bill overdue
+        active --> suspended: operator suspends
+        token --> active: top-up
+        expired --> active: balance top-up
+        suspended --> active: unsuspend
+    }
+```
+
+### Payment flow sequence
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Op as Operator
+    participant API as api
+    participant GW as Payment gateway
+    participant DB as Postgres
+    participant Worker as worker
+
+    Op->>API: POST /customers/:id/topup { amount }
+    activate API
+    API->>DB: insert payments (pending, entity_type=wallet_topup)
+    API->>GW: start checkout (amount, webhook URL)
+    GW-->>API: external_ref + checkout_url
+    API-->>Op: { checkout_url, external_ref }
+
+    Note over GW,Op: customer pays at the gateway
+    GW->>API: POST /payments/:ref/complete { ref, amount }
+    API->>API: verify HMAC-SHA256 signature (PAYMENT_WEBHOOK_SECRET)
+    API->>DB: mark payment succeeded, credit customers.balance
+    API->>DB: insert wallet_transactions (type=topup)
+    deactivate API
+
+    Worker->>DB: next billing run reads balance
+    Worker->>DB: mark billing_windows paid if balance covers amount
+```
+
 ## Requirements
 
 - Docker Engine with Docker Compose v2 (plugin)
