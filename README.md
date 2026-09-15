@@ -2,6 +2,23 @@
 
 Wi-Fi hotspot management — Go/Gin backend + React/Vite frontend, fully containerized.
 
+## About this project
+
+FIHOS is a complete software system for managing paid Wi-Fi hotspots — the kind used by internet cafés (warnets), coffee shops, and small internet providers in Southeast Asia.
+
+One platform serves many businesses at once (multi-tenant). Each business owner can:
+
+- **Sell internet access** — create voucher codes (e.g. "2 hours for Rp 5,000") that customers redeem to get online
+- **Track customers** — keep a registry of subscribers and bill them monthly
+- **Take payments** — customers pay online (wallet top-ups or instant payment), and the system keeps a record of every transaction
+- **Monitor the network** — see live sessions, who is online, data usage, and how well each router/hotspot is performing
+- **Boost speed on demand** — schedule temporary speed increases, e.g. during busy hours
+- **Spot problems automatically** — the system watches usage patterns and raises alerts when something looks abnormal
+
+The project is production-oriented: it ships as Docker containers (easy to deploy), has an automated test suite (unit, integration, and end-to-end), and follows a documented API and database design. It is a full-stack project — backend (Go), frontend (React), database (PostgreSQL), and caching (Redis) — built, tested, and deployed together.
+
+The technical details below are for engineers; the summary above answers "what does this project do?"
+
 ## Stack
 
 | Service | Image | External port | Notes |
